@@ -1,13 +1,11 @@
-import math
 import torch
-from src.api.model import DistributedAlignment
-from src.api.model import IntervenableQwen2ForCausalLM
-from src.api.tokenizer import BNCTokenizer
+from src.api import DistributedAlignment, IntervenableQwen2ForCausalLM, BNCTokenizer
 
 
 def load_model_tokenizer(model_path, **model_kwargs):
     model = IntervenableQwen2ForCausalLM.from_pretrained(model_path, **model_kwargs)
-    tokenizer = BNCTokenizer.from_pretrained(f"{model_path}/bnc_word2c5.json")
+    # tokenizer = BNCTokenizer.from_pretrained(f"{model_path}/bnc_word2c5.json")
+    tokenizer = BNCTokenizer(vocab_file=f"{model_path}/bnc_word2c5.json", top_k=20000)
     return model, tokenizer
 
 def load_alignment(alignment_path, hidden_size, proj_num, device):

@@ -45,15 +45,19 @@ class DASTrainer:
             sampler=train_dataset.get_sampler(batch_size, seed),
             collate_fn=train_dataset.collate_fn
         )
-        eval_dataloader = DataLoader(
-            eval_dataset, 
-            batch_size=batch_size, 
-            sampler=eval_dataset.get_sampler(batch_size, seed),
-            collate_fn=eval_dataset.collate_fn
-        )
-
         self.train_dataloader = train_dataloader
-        self.eval_dataloader = eval_dataloader
+
+        if eval_dataset is not None:
+            eval_dataloader = DataLoader(
+                eval_dataset, 
+                batch_size=batch_size, 
+                sampler=eval_dataset.get_sampler(batch_size, seed),
+                collate_fn=eval_dataset.collate_fn
+            )
+            self.eval_dataloader = eval_dataloader
+        else:
+            self.eval_dataloader = None
+
         self.output_dir = output_dir
         self.top_k_scheduler = top_k_scheduler
         
@@ -214,7 +218,7 @@ class DASTrainer:
                     self.writer.add_scalar("train/learning_rate", self.optimizer.param_groups[0]["lr"], current_step)
                     self.writer.add_scalar("train/top_k", top_k, current_step)
 
-                if current_step % eval_steps == 0:
+                if current_step % eval_steps == 0 and self.eval_dataloader is not None:
                     eval_metrics = self.evaluate()
                     
                     # Log to TensorBoard

@@ -1,0 +1,304 @@
+#!/bin/bash
+
+# 配置参数
+PUBLIC_HOST="8.8.8.8"      # 公网地址（Google DNS）
+PRIVATE_HOST="192.168.1.1" # 内网地址（通常是网关），请根据实际情况修改
+NETWORK_INTERFACE="eno1"    # 网络接口名称
+LOG_FILE="/var/log/network-monitor.log"
+PING_COUNT=3               # ping次数
+PING_TIMEOUT=10            # ping超时时间（秒）
+MAX_RETRIES=2              # 失败重试次数
+RECONNECT_ATTEMPTS=3       # 网络重连尝试次数
+
+# 创建日志文件（如果不存在）
+touch $LOG_FILE
+
+# 日志函数
+log_message() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+}
+
+# ping检测函数
+check_host() {
+    local host=$1
+    local host_type=$2
+    
+    ping -c $PING_COUNT -W $PING_TIMEOUT $host > /dev/null 2>&1
+    local result=$?
+    
+    if [ $result -eq 0 ]; then
+        log_message "✓ ${host_type}地址 $host 可达"
+        return 0
+    else
+        log_message "✗ ${host_type}地址 $host 不可达"
+        return 1
+    fi
+}
+
+# 检查网络接口状态
+check_interface_status() {
+    local interface=$1
+    
+    # 检查接口是否存在
+    if ! ip link show $interface > /dev/null 2>&1; then
+        log_message "错误：网络接口 $interface 不存在"
+        return 1
+    fi
+    
+    # 检查接口状态
+    local status=$(ip link show $interface | grep -o "state [A-Z]*" | cut -d' ' -f2)
+    log_message "网络接口 $interface 状态: $status"
+    
+    if [ "$status" = "UP" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# 重新连接网络接口
+reconnect_network_interface() {
+    local interface=$1
+    local attempt=$2
+    
+    log_message "=== 第 $attempt 次尝试重新连接网络接口 $interface ==="
+    
+    # 1. 禁用网络接口
+    log_message "禁用网络接口 $interface..."
+    if sudo ip link set $interface down; then
+        log_message "✓ 网络接口已禁用"
+    else
+        log_message "✗ 禁用网络接口失败"
+        return 1
+    fi
+    
+    sleep 5
+    
+    # 2. 启用网络接口
+    log_message "启用网络接口 $interface..."
+    if sudo ip link set $interface up; then
+        log_message "✓ 网络接口已启用"
+    else
+        log_message "✗ 启用网络接口失败"
+        return 1
+    fi
+    
+    sleep 10
+    
+    # 3. 重启NetworkManager服务
+    log_message "重启NetworkManager服务..."
+    if sudo systemctl restart NetworkManager; then
+        log_message "✓ NetworkManager已重启"
+    else
+        log_message "✗ NetworkManager重启失败"
+    fi
+    
+    sleep 15
+    
+    # 4. 尝试重新获取IP地址（DHCP）
+    log_message "尝试重新获取IP地址..."
+    if sudo dhclient -r $interface > /dev/null 2>&1; then
+        log_message "✓ 释放旧IP地址"
+    fi
+    
+    sleep 5
+    
+    if sudo dhclient $interface > /dev/null 2>&1; then
+        log_message "✓ 重新获取IP地址"
+    else
+        log_message "✗ 重新获取IP地址失败"
+    fi
+    
+    sleep 10
+    
+    # 5. 检查接口状态和IP地址
+    check_interface_status $interface
+    local ip_addr=$(ip addr show $interface | grep "inet " | awk '{print $2}' | head -n1)
+    if [ -n "$ip_addr" ]; then
+        log_message "✓ 网络接口 $interface IP地址: $ip_addr"
+        return 0
+    else
+        log_message "✗ 网络接口 $interface 未获取到IP地址"
+        return 1
+    fi
+}
+
+# 网络故障恢复尝试
+attempt_network_recovery() {
+    log_message "!!! 检测到网络异常，开始网络恢复流程 !!!"
+    
+    # 首先检查网络接口状态
+    check_interface_status $NETWORK_INTERFACE
+    
+    # 尝试重新连接网络
+    for i in $(seq 1 $RECONNECT_ATTEMPTS); do
+        log_message "--- 网络恢复尝试 $i/$RECONNECT_ATTEMPTS ---"
+        
+        if reconnect_network_interface $NETWORK_INTERFACE $i; then
+            log_message "✓ 网络接口重连成功，等待30秒后测试连通性..."
+            sleep 30
+            
+            # 测试网络连通性
+            log_message "测试网络恢复后的连通性..."
+            if check_network_connectivity; then
+                log_message "🎉 网络恢复成功！"
+                return 0
+            else
+                log_message "✗ 网络重连后仍无法连通"
+            fi
+        else
+            log_message "✗ 第 $i 次网络重连失败"
+        fi
+        
+        if [ $i -lt $RECONNECT_ATTEMPTS ]; then
+            log_message "等待30秒后进行下一次尝试..."
+            sleep 30
+        fi
+    done
+    
+    log_message "!!! 所有网络恢复尝试都失败了 !!!"
+    return 1
+}
+
+# 简单的网络连通性测试（用于恢复后验证）
+check_network_connectivity() {
+    local public_ok=false
+    local private_ok=false
+    
+    if check_host $PUBLIC_HOST "公网"; then
+        public_ok=true
+    fi
+    
+    if check_host $PRIVATE_HOST "内网"; then
+        private_ok=true
+    fi
+    
+    if [ "$public_ok" = true ] && [ "$private_ok" = true ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# 网络全面检测函数
+check_network_full() {
+    local public_ok=false
+    local private_ok=false
+    local retry_count=0
+    
+    # 重试机制
+    while [ $retry_count -lt $MAX_RETRIES ]; do
+        log_message "开始第 $((retry_count + 1)) 次网络检测"
+        
+        # 检测公网连通性
+        if check_host $PUBLIC_HOST "公网"; then
+            public_ok=true
+        fi
+        
+        # 检测内网连通性
+        if check_host $PRIVATE_HOST "内网"; then
+            private_ok=true
+        fi
+        
+        # 如果两个地址都能ping通，网络正常
+        if [ "$public_ok" = true ] && [ "$private_ok" = true ]; then
+            log_message "网络状态：正常（公网和内网都可达）"
+            return 0
+        fi
+        
+        # 如果只有一个能ping通，记录但继续重试
+        if [ "$public_ok" = true ] && [ "$private_ok" = false ]; then
+            log_message "网络状态：部分异常（仅公网可达，内网不可达）"
+        elif [ "$public_ok" = false ] && [ "$private_ok" = true ]; then
+            log_message "网络状态：部分异常（仅内网可达，公网不可达）"
+        else
+            log_message "网络状态：完全异常（公网和内网都不可达）"
+        fi
+        
+        retry_count=$((retry_count + 1))
+        
+        if [ $retry_count -lt $MAX_RETRIES ]; then
+            log_message "等待10秒后进行重试..."
+            sleep 10
+        fi
+        
+        # 重置状态为下次检测
+        public_ok=false
+        private_ok=false
+    done
+    
+    # 所有重试都失败
+    return 1
+}
+
+# 网络监控主循环
+monitor_network() {
+    log_message "=== 网络监控脚本启动 ==="
+    log_message "监控配置："
+    log_message "  公网地址: $PUBLIC_HOST"
+    log_message "  内网地址: $PRIVATE_HOST"
+    log_message "  网络接口: $NETWORK_INTERFACE"
+    log_message "  检测间隔: 30分钟"
+    log_message "  重试次数: $MAX_RETRIES"
+    log_message "  重连尝试: $RECONNECT_ATTEMPTS"
+    log_message "=========================="
+    
+    # 检查网络接口是否存在
+    if ! check_interface_status $NETWORK_INTERFACE; then
+        log_message "错误：网络接口 $NETWORK_INTERFACE 状态异常，请检查配置"
+        exit 1
+    fi
+    
+    while true; do
+        log_message "--- 开始网络连通性检测 ---"
+        
+        if check_network_full; then
+            log_message "网络检测结果：正常"
+        else
+            log_message "!!! 网络检测结果：异常 !!!"
+            
+            # 尝试网络恢复
+            if attempt_network_recovery; then
+                log_message "🎉 网络恢复成功，继续监控"
+            else
+                log_message "💥 网络恢复失败，准备重启系统..."
+                
+                # 记录重启原因到系统日志
+                logger "网络监控：网络恢复失败，公网($PUBLIC_HOST)或内网($PRIVATE_HOST)连接异常，系统即将重启"
+                
+                # 最后一次详细检测并记录
+                log_message "重启前最终状态检查："
+                check_host $PUBLIC_HOST "公网"
+                check_host $PRIVATE_HOST "内网"
+                check_interface_status $NETWORK_INTERFACE
+                
+                log_message "系统将在10秒后重启..."
+                sleep 10
+                /sbin/reboot
+            fi
+        fi
+        
+        log_message "下次检测时间: $(date -d '+30 minutes' '+%Y-%m-%d %H:%M:%S')"
+        log_message "--- 网络检测完成，等待30分钟 ---"
+        
+        # 等待30分钟（1800秒）
+        sleep 1800
+    done
+}
+
+# 信号处理
+cleanup() {
+    log_message "收到停止信号，网络监控脚本退出"
+    exit 0
+}
+
+trap cleanup SIGTERM SIGINT
+
+# 检查配置
+if [ -z "$PUBLIC_HOST" ] || [ -z "$PRIVATE_HOST" ] || [ -z "$NETWORK_INTERFACE" ]; then
+    log_message "错误：PUBLIC_HOST、PRIVATE_HOST 或 NETWORK_INTERFACE 未配置"
+    exit 1
+fi
+
+# 启动监控
+monitor_network

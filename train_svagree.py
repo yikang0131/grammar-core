@@ -6,14 +6,22 @@ from src.api import (
     DASTrainer,
     DistributedAlignment,
     IntervenableQwen2ForCausalLM,
+    IntervenableGPTNeoXForCausalLM,
     TopKScheduler
 )
+from transformers import AutoTokenizer
 
+# concept_config = ConceptConfig.from_dict(concept_dict = {
+#     "target_num": {"id": 0, "values": ["singular", "plural"], "at": "model.layers[4]"},
+#     "distractor_num": {"id": 1, "values": ["singular", "plural"], "at": "model.layers[4]"},
+#     "agree_with": {"id": 2, "values": ["target", "distractor"], "at": "model.layers[5]"},
+#     "label": {"id": 3, "values": ["is", "are"], "at": ""}
+# })
 
 concept_config = ConceptConfig.from_dict(concept_dict = {
-    "target_num": {"id": 0, "values": ["singular", "plural"], "at": "model.layers[4]"},
-    "distractor_num": {"id": 1, "values": ["singular", "plural"], "at": "model.layers[4]"},
-    "agree_with": {"id": 2, "values": ["target", "distractor"], "at": "model.layers[5]"},
+    "target_num": {"id": 0, "values": ["singular", "plural"], "at": "model.layers[8]"},
+    "distractor_num": {"id": 1, "values": ["singular", "plural"], "at": "model.layers[8]"},
+    "agree_with": {"id": 2, "values": ["target", "distractor"], "at": "model.layers[10]"},
     "label": {"id": 3, "values": ["is", "are"], "at": ""}
 })
 
@@ -107,12 +115,17 @@ class SVDataset(InterventionDataset):
 
 train_df = pd.read_json("data/svagree/solved.train.jsonl", lines=True)
 eval_df = pd.read_json("data/svagree/solved.dev.jsonl", lines=True)
-tokenizer = BNCTokenizer.from_pretrained("results/checkpoint-97790/bnc_word2c5.json")
+# tokenizer = BNCTokenizer.from_pretrained("results/checkpoint-97790/bnc_word2c5.json")
+
+# tokenizer = AutoTokenizer.from_pretrained("models/pythia-160m")
+tokenizer = AutoTokenizer.from_pretrained("/mnt/models/Qwen2.5-0.5B")
 train_dataset = SVDataset(train_df, tokenizer, seq_len=16, concept_config=concept_config)
 eval_dataset = SVDataset(eval_df, tokenizer, seq_len=16, concept_config=concept_config)
 
 
-model = IntervenableQwen2ForCausalLM.from_pretrained("results/checkpoint-97790").to("cuda:0")
+# model = IntervenableQwen2ForCausalLM.from_pretrained("results/checkpoint-97790").to("cuda:0")
+model = IntervenableQwen2ForCausalLM.from_pretrained("/mnt/models/Qwen2.5-0.5B").to("cuda:0")
+# model = IntervenableGPTNeoXForCausalLM.from_pretrained("models/pythia-160m").to("cuda:0")
 das = DistributedAlignment(model.config.hidden_size, 3)
 
 
@@ -137,7 +150,7 @@ trainer = DASTrainer(
     "cuda:0",
     learning_rate=1e-3,
     # output_dir="svagree_das",
-    output_dir="svagree_das2",
+    output_dir="svagree_das3",
     top_k_scheduler=top_k_scheduler,
 )
 

@@ -15,7 +15,7 @@ class ConceptConfig:
         self.concepts = concepts
 
     def __post_init__(self):
-        self.concepts[-1].name == "label"
+        assert self.concepts[-1].name == "label"
 
     @property
     def input_concepts(self):
