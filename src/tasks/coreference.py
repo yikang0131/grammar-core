@@ -49,12 +49,16 @@ interv_configs = [
     {"name": "context_direction"},
 ]
 
+
 output_space = ["A", "B"]
+chat = True
 multi_token = False
+
 
 TASK_KWARGS = {
     "interv_configs": interv_configs,
     "output_space": output_space,
+    "chat": chat,
     "multi_token": multi_token
 }
 
@@ -113,7 +117,7 @@ class Coreference(Task):
                 intervention_data["base_answer"].append(row1.answer)
                 intervention_data["source_answer"].append(row2.answer)
                 intervention_data["intervention_variables"].append(
-                    ["binding_direction"]
+                    [self.var2id("binding_direction")]
                 )
 
         binding_based_data = pd.DataFrame(intervention_data).sample(n=600, random_state=42)
@@ -139,7 +143,7 @@ class Coreference(Task):
                 intervention_data["base_answer"].append(row1.answer)
                 intervention_data["source_answer"].append(row2.answer)
                 intervention_data["intervention_variables"].append(
-                    ["context_direction"]
+                    [self.var2id("context_direction")]
                 )
         context_based_data = pd.DataFrame(intervention_data).sample(n=600, random_state=42)
         # context_based_data.to_json("coreference_intervention_context.jsonl", lines=True, orient="records")
@@ -163,7 +167,7 @@ class Coreference(Task):
                 intervention_data["base_answer"].append(row1.answer)
                 intervention_data["source_answer"].append(row2.answer)
                 intervention_data["intervention_variables"].append(
-                    ["gender_direction"]
+                    [self.var2id("gender_direction")]
                 )
         gender_based_data = pd.DataFrame(intervention_data).sample(n=600, random_state=42)
         # gender_based_data.to_json("coreference_intervention_gender.jsonl", lines=True, orient="records")
@@ -183,4 +187,4 @@ class Coreference(Task):
             test_data.base_answer = test_data.base_answer.apply(lambda x: "A" if x == "person1" else "B")
             test_data.source_answer = test_data.source_answer.apply(lambda x: "A" if x == "person1" else "B")
 
-            return {"train": train_data, "test": test_data}
+            return {"train": train_data, "validation": test_data}

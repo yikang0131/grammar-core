@@ -81,4 +81,8 @@
 from src.tasks.coreference import Coreference
 
 coref_task = Coreference()
-coref_task.generate_data("data/coreference.jsonl", ambiguous=False, train_test_split=False)
+# coref_task.generate_data("data/coreference.jsonl", ambiguous=False, train_test_split=False)
+coref_task.update_interv_configs(
+    ["model.layers[10]", "model.layers[10]", "model.layers[10]"]
+)
+coref_task.save_task_config("coreference_task_config.json")

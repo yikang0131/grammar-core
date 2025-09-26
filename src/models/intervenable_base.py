@@ -16,8 +16,8 @@ class IntervenableBase:
         base_attention_mask,
         source_input_ids,
         source_attention_mask,
-        intervention_module,
         intervention_variables,
+        intervention_module,
         intervention_position=None,
         **kwargs
     ):

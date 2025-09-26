@@ -1,0 +1,22 @@
+{
+    "task_name": "Coreference",
+    "interv_configs": [
+        {
+            "name": "gender_direction",
+            "interv_at": "model.layers[10]"
+        },
+        {
+            "name": "binding_direction",
+            "interv_at": "model.layers[10]"
+        },
+        {
+            "name": "context_direction",
+            "interv_at": "model.layers[10]"
+        }
+    ],
+    "output_space": [
+        "A",
+        "B"
+    ],
+    "multi_token": false
+}

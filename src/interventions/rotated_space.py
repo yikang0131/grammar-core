@@ -10,35 +10,13 @@ class RotatedSpaceIntervention(nn.Module):
         self.proj_num = proj_num
         
         rotation_matrix = torch.empty(hidden_size, hidden_size)
-        # nn.utils.parametrizations.orthogonal()
         nn.init.orthogonal_(rotation_matrix)
+        # nn.utils.parametrizations.orthogonal(rotation_matrix)
         self.rotation_matrix = nn.Parameter(rotation_matrix, requires_grad=True)
         
         var_proj = torch.empty(proj_num, hidden_size)
-        nn.init.kaiming_uniform_(var_proj)
+        nn.init.kaiming_normal_(var_proj)
         self.var_proj = nn.Parameter(var_proj, requires_grad=True)
-
-    def get_projection_weights(self):
-        return torch.sigmoid(self.var_proj)
-        
-    def extract_interpretable_representations(self, hidden_states, intervention_variable, top_k, rotated_back=False):
-        """Extract interpretable representations by projecting to the learned basis"""
-        rotated_states = torch.matmul(hidden_states, self.rotation_matrix)
-        projection_weights = self.get_projection_weights()
-        
-        # Select top_k dimensions for this variable
-        top_indices = self.select_subspace(top_k, intervention_variable)
-        
-        # Create a mask for the selected dimensions
-        mask = torch.zeros_like(projection_weights[intervention_variable])
-        mask[top_indices] = 1.0
-        
-        output = rotated_states * (projection_weights[intervention_variable] * mask)
-
-        if rotated_back:
-            output = torch.matmul(output, self.rotation_matrix.T)
-
-        return output
 
     def select_subspace(self, top_k, var_idx):
         """Select top_k dimensions based on projection weights for variable var_idx"""

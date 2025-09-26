@@ -1,6 +1,55 @@
-from collections import defaultdict
-from torch.utils.data import Sampler
 import torch
+from torch.utils.data import Sampler, DataLoader
+
+from collections import defaultdict
+
+
+def tokenize_function(texts, tokenizer, max_length, **kwargs):
+    chat = kwargs.pop("chat", False)
+    if chat:
+        texts = [
+            tokenizer.apply_chat_template(
+                t,
+                add_generation_prompt=True,
+                tokenize=False,
+                **kwargs
+            ) for t in texts
+        ]
+    inputs = tokenizer(texts, max_length=max_length, truncation=True, padding="max_length", return_tensors="pt")
+    return inputs
+
+
+def get_inputs(data, tokenizer, max_length, chat=True, **kwargs):
+    base_inputs = tokenize_function(
+        data["base_question"],
+        tokenizer=tokenizer,
+        max_length=max_length,
+        chat=chat,
+        **kwargs
+    )
+    source_inputs = tokenize_function(
+        data["source_question"],
+        tokenizer=tokenizer,
+        max_length=max_length,
+        chat=chat,
+        **kwargs
+    )
+    outputs = ({"base_input_ids": base_inputs["input_ids"],
+                "base_attention_mask": base_inputs["attention_mask"],
+                "source_input_ids": source_inputs["input_ids"],
+                "source_attention_mask": source_inputs["attention_mask"],
+                "intervention_variables": data["intervention_variables"]})
+    return outputs
+
+
+def get_outputs(data, tokenizer, mutli_token=False):
+    if mutli_token:
+        raise NotImplementedError("Multi-token answers are not implemented yet.")
+    else:
+        base_answers = tokenizer.convert_tokens_to_ids(data["base_answer"])
+        source_answers = tokenizer.convert_tokens_to_ids(data["source_answer"])
+        outputs = {"base_answer": base_answers, "source_answer": source_answers}
+    return outputs
 
 
 def get_sampler(data, batch_size, seed):
@@ -40,3 +89,32 @@ def get_sampler(data, batch_size, seed):
                 yield from shuffled_batches[i]
 
     return InterventionSampler(data, batch_size, seed)
+
+
+def collate_fn(batch):
+    batch_out = {}
+    for key in batch[0]:
+        values = [item[key] for item in batch]
+        if isinstance(values[0], (int, float, torch.Tensor)):
+            if isinstance(values[0], torch.Tensor):
+                batch_out[key] = torch.stack(values)
+            else:
+                batch_out[key] = torch.tensor(values)
+        else:
+            batch_out[key] = values
+    # Ensure all items in the batch have the same intervention_variables
+    intervention_vars = batch_out["intervention_variables"]
+    if any(v != intervention_vars[0] for v in intervention_vars):
+        raise ValueError("All items in the batch must have the same intervention_variables.")
+    batch_out["intervention_variables"] = batch_out["intervention_variables"][0]
+    return batch_out
+
+
+def get_dataloader(data, batch_size, seed, tokenizer, max_length, **kwargs):
+    all_inputs = get_inputs(data, tokenizer, max_length, **kwargs)
+    all_outputs = get_outputs(data, tokenizer)
+    all_data = {**all_inputs, **all_outputs}
+    # to list of dicts
+    data = [dict(zip(all_data, t)) for t in zip(*all_data.values())]
+    sampler = get_sampler(data, batch_size, seed)
+    return DataLoader(data, batch_size=batch_size, sampler=sampler, collate_fn=collate_fn)
