@@ -1,4 +1,3 @@
-from abc import abstractmethod
 from src.models.utils import IntervenedOutput
 
 
@@ -8,8 +7,7 @@ class IntervenableBase:
         for param in self.parameters():
             param.requires_grad = False
 
-    @abstractmethod
-    def intervenalbe_forward(self, **intervention_kwargs):
+    def intervenable_forward(self, **intervention_kwargs):
         raise NotImplementedError("This method should be implemented in subclasses.")
     
     def run_intervention(

@@ -1,6 +1,7 @@
 from transformers import Qwen3ForCausalLM
 from transformers.utils import logging
 from transformers.cache_utils import Cache, DynamicCache
+from transformers.masking_utils import create_causal_mask, create_sliding_window_causal_mask
 
 import torch
 from typing import Optional
@@ -41,26 +42,13 @@ class IntervenableQwen3ForCausalLM(Qwen3ForCausalLM, IntervenableBase):
         **intervention_kwargs,
     ):
         """Forward pass with interventions applied at specified layers."""
+        all_hidden_states = {}
         if intervention_position is None:
             intervention_position = slice(-1, None)
         
-        use_cache = use_cache if use_cache is not None else self.model.config.use_cache
-
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
-        if self.model.gradient_checkpointing and self.model.training and use_cache:
-            logger.warning_once(
-                "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`."
-            )
-            use_cache = False
-
-        if not isinstance(past_key_values, (type(None), Cache)):
-            raise ValueError("The `past_key_values` should be either a `Cache` object or `None`.")
-
-        all_hidden_states = {}
-
-        # Get embeddings
         if inputs_embeds is None:
             inputs_embeds = self.model.embed_tokens(input_ids)
 
@@ -72,7 +60,7 @@ class IntervenableQwen3ForCausalLM(Qwen3ForCausalLM, IntervenableBase):
         all_hidden_states["model.embed_tokens"] = inputs_embeds
 
         if use_cache and past_key_values is None:
-            past_key_values = DynamicCache()
+            past_key_values = DynamicCache(config=self.config)
 
         if cache_position is None:
             past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
@@ -83,13 +71,28 @@ class IntervenableQwen3ForCausalLM(Qwen3ForCausalLM, IntervenableBase):
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
-        causal_mask = self.model._update_causal_mask(
-            attention_mask, inputs_embeds, cache_position, past_key_values
-        )
+        # It may already have been prepared by e.g. `generate`
+        if not isinstance(causal_mask_mapping := attention_mask, dict):
+            # Prepare mask arguments
+            mask_kwargs = {
+                "config": self.config,
+                "input_embeds": inputs_embeds,
+                "attention_mask": attention_mask,
+                "cache_position": cache_position,
+                "past_key_values": past_key_values,
+                "position_ids": position_ids,
+            }
+            # Create the masks
+            causal_mask_mapping = {
+                "full_attention": create_causal_mask(**mask_kwargs),
+            }
+            # The sliding window alternating layers are not always activated depending on the config
+            if self.model.has_sliding_layers:
+                causal_mask_mapping["sliding_attention"] = create_sliding_window_causal_mask(**mask_kwargs)
 
         hidden_states = inputs_embeds
 
-        # Create position embeddings
+        # create position embeddings to be shared across the decoder layers
         position_embeddings = self.model.rotary_emb(hidden_states, position_ids)
         
         # Apply intervention to position embeddings if specified
@@ -99,19 +102,16 @@ class IntervenableQwen3ForCausalLM(Qwen3ForCausalLM, IntervenableBase):
 
         all_hidden_states["model.rotary_emb"] = position_embeddings
 
-        # Process through decoder layers
-        for i, decoder_layer in enumerate(self.model.layers[: self.model.config.num_hidden_layers]):
-            layer_outputs = decoder_layer(
+        for i, decoder_layer in enumerate(self.model.layers[: self.config.num_hidden_layers]):
+            hidden_states = decoder_layer(
                 hidden_states,
-                attention_mask=causal_mask,
+                attention_mask=causal_mask_mapping[decoder_layer.attention_type],
                 position_ids=position_ids,
-                past_key_value=past_key_values,
+                past_key_values=past_key_values,
                 use_cache=use_cache,
                 cache_position=cache_position,
                 position_embeddings=position_embeddings,
             )
-
-            hidden_states = layer_outputs[0]
             
             # Apply intervention to this layer's output if specified
             intervention_key = f"model.layers[{i}]"
@@ -120,7 +120,6 @@ class IntervenableQwen3ForCausalLM(Qwen3ForCausalLM, IntervenableBase):
                 # hidden_states = intervention_kwargs[intervention_key]
             all_hidden_states[f"model.layers[{i}]"] = hidden_states
 
-        # Apply layer norm
         hidden_states = self.model.norm(hidden_states)
         
         # Apply intervention to normalized hidden states if specified

@@ -37,3 +37,7 @@ class Task:
             output_space=config["output_space"],
             multi_token=config.get("multi_token")
         )
+    
+    def generate_data(self, **kwargs):
+        raise NotImplementedError("This method should be implemented in subclasses.")
+

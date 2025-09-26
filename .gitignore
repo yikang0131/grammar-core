@@ -1,6 +1,22 @@
 **/__pycache__/
+# block all files in any __pycache__ folder
+*.pyc
+# ignore all .pyc files
+*.pyo
+# ignore all .pyo files
+*.pyd
+# ignore all .pyd files
+__pycache__/
+# ignore all __pycache__ folders
+*.so
+# ignore all .so files
+*.dylib
+# ignore all .dylib files
+*.egg
+# ignore all .egg files
 # data/*
 logs/*
 results/*
 models/*
 old/*
+.DS_Store
