@@ -4,7 +4,7 @@ from transformers.cache_utils import Cache, DynamicCache
 from transformers.masking_utils import create_causal_mask, create_sliding_window_causal_mask
 
 import torch
-from typing import Optional
+from typing import Optional, List
 
 from src.models.utils import IntervenableOutput
 from src.models.intervenable_base import IntervenableBase
@@ -39,9 +39,16 @@ class IntervenableQwen3ForCausalLM(Qwen3ForCausalLM, IntervenableBase):
         use_cache: Optional[bool] = None,
         cache_position: Optional[torch.LongTensor] = None,
         intervention_position: slice = None,
+        intervened_modules: Optional[List[str]] = None,
         **intervention_kwargs,
     ):
         """Forward pass with interventions applied at specified layers."""
+        def to_collect(module_name):
+            return (module_name in intervention_kwargs) or (module_name in intervened_modules)
+
+        if intervened_modules is None:
+            intervened_modules = []
+
         all_hidden_states = {}
         if intervention_position is None:
             intervention_position = slice(-1, None)
@@ -57,7 +64,8 @@ class IntervenableQwen3ForCausalLM(Qwen3ForCausalLM, IntervenableBase):
             inputs_embeds[:, intervention_position, :] = intervention_kwargs["model.embed_tokens"]
             # inputs_embeds = intervention_kwargs["model.embed_tokens"]
 
-        all_hidden_states["model.embed_tokens"] = inputs_embeds
+        if to_collect("model.embed_tokens"):
+            all_hidden_states["model.embed_tokens"] = inputs_embeds
 
         if use_cache and past_key_values is None:
             past_key_values = DynamicCache(config=self.config)
@@ -94,13 +102,6 @@ class IntervenableQwen3ForCausalLM(Qwen3ForCausalLM, IntervenableBase):
 
         # create position embeddings to be shared across the decoder layers
         position_embeddings = self.model.rotary_emb(hidden_states, position_ids)
-        
-        # Apply intervention to position embeddings if specified
-        if "model.rotary_emb" in intervention_kwargs:
-            position_embeddings[:, intervention_position, :] = intervention_kwargs["model.rotary_emb"]
-            # position_embeddings = intervention_kwargs["model.rotary_emb"]
-
-        all_hidden_states["model.rotary_emb"] = position_embeddings
 
         for i, decoder_layer in enumerate(self.model.layers[: self.config.num_hidden_layers]):
             hidden_states = decoder_layer(
@@ -118,7 +119,9 @@ class IntervenableQwen3ForCausalLM(Qwen3ForCausalLM, IntervenableBase):
             if intervention_key in intervention_kwargs:
                 hidden_states[:, intervention_position, :] = intervention_kwargs[intervention_key]
                 # hidden_states = intervention_kwargs[intervention_key]
-            all_hidden_states[f"model.layers[{i}]"] = hidden_states
+
+            if to_collect(intervention_key):
+                all_hidden_states[f"model.layers[{i}]"] = hidden_states
 
         hidden_states = self.model.norm(hidden_states)
         
@@ -127,16 +130,10 @@ class IntervenableQwen3ForCausalLM(Qwen3ForCausalLM, IntervenableBase):
             hidden_states[:, intervention_position, :] = intervention_kwargs["model.norm"]
             # hidden_states = intervention_kwargs["model.norm"]
 
-        all_hidden_states["model.norm"] = hidden_states
+        if to_collect("model.norm"):
+            all_hidden_states["model.norm"] = hidden_states
 
         # Get logits
         logits = self.lm_head(hidden_states)
-        
-        # Apply intervention to logits if specified
-        if "lm_head" in intervention_kwargs:
-            logits[:, intervention_position, :] = intervention_kwargs["lm_head"]
-            # logits = intervention_kwargs["lm_head"]
-
-        all_hidden_states["lm_head"] = logits
 
         return IntervenableOutput(logits=logits, hidden_states=all_hidden_states)

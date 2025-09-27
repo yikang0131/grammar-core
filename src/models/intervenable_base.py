@@ -7,7 +7,7 @@ class IntervenableBase:
         for param in self.parameters():
             param.requires_grad = False
 
-    def intervenable_forward(self, **intervention_kwargs):
+    def intervenable_forward(self, **kwargs):
         raise NotImplementedError("This method should be implemented in subclasses.")
     
     def run_intervention(
@@ -19,10 +19,16 @@ class IntervenableBase:
         intervention_variables,
         intervention_module,
         intervention_position=None,
+        output_space=None,
+        criterion=None,
+        labels=None,
         **kwargs
     ):
         if intervention_position is None:
             intervention_position = slice(-1, None)
+        
+        if output_space is None:
+            output_space = slice(None, None)
 
         base_inputs = {
             "input_ids": base_input_ids.to(self.device),
@@ -39,16 +45,20 @@ class IntervenableBase:
             if interv_at not in interv_map:
                 interv_map[interv_at] = []
             interv_map[interv_at].append(interv_id)
+
+        intervened_modules = list(interv_map.keys())
         
         original_outputs = self.intervenable_forward(
             intervention_position=intervention_position,
+            intervened_modules=intervened_modules,
             **base_inputs
         )
         original_hidden_states = original_outputs.hidden_states
-        original_logits = original_outputs.logits
+        original_logits = original_outputs.logits[:, -1, output_space] # TODO: so far we only consider last token prediction
 
         source_hidden_states = self.intervenable_forward(
             intervention_position=intervention_position,
+            intervened_modules=intervened_modules,
             **source_inputs
         ).hidden_states
 
@@ -62,15 +72,22 @@ class IntervenableBase:
 
             intervention_kwargs[interv_at] = modified_activations
 
-            outputs = self.model.intervenable_forward(
+            outputs = self.intervenable_forward(
                 intervention_position=intervention_position,
                 **base_inputs,
                 **intervention_kwargs
             )
             base_hidden_states = outputs.hidden_states
-            modified_logits = outputs.logits
+            modified_logits = outputs.logits[:, -1, output_space] # TODO: so far we only consider last token prediction
+
+        loss = None
+        if criterion is not None and labels is not None:
+            if output_space is None:
+                output_space = slice(None, None)
+            loss = criterion(modified_logits, labels.to(modified_logits.device))
 
         return IntervenedOutput(
+            loss=loss,
             original_logits=original_logits,
             modified_logits=modified_logits,
             original_hidden_states=original_hidden_states,

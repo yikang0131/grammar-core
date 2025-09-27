@@ -1,0 +1,3 @@
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+ 
+python src/cli/train.py --model_name_or_path /data/ykliu/models/qwen3-8b --model_kwargs device_map=auto dtype=bfloat16 --task_name Coreference --intervention_name RotatedSpaceIntervention --data_path data/coreference.jsonl --output_dir results/qwen3-8b_coreference_rotated-space --interv_at model.layers[20] model.layers[20] model.layers[20] --batch_size 8 --eval_steps 100

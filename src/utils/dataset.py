@@ -1,5 +1,5 @@
 import torch
-from torch.utils.data import Sampler, DataLoader
+from torch.utils.data import Sampler, DataLoader, Dataset
 
 from collections import defaultdict
 
@@ -42,13 +42,26 @@ def get_inputs(data, tokenizer, max_length, chat=True, **kwargs):
     return outputs
 
 
-def get_outputs(data, tokenizer, mutli_token=False):
+def get_outputs(data, tokenizer, output_space, mutli_token=False):
     if mutli_token:
         raise NotImplementedError("Multi-token answers are not implemented yet.")
     else:
         base_answers = tokenizer.convert_tokens_to_ids(data["base_answer"])
         source_answers = tokenizer.convert_tokens_to_ids(data["source_answer"])
-        outputs = {"base_answer": base_answers, "source_answer": source_answers}
+        base_labels = []
+        for ans in base_answers:
+            labels = [0.0] * len(output_space)
+            labels[output_space.index(ans)] = 1.0
+            base_labels.append(labels)
+        source_labels = []
+        for ans in source_answers:
+            labels = [0.0] * len(output_space)
+            labels[output_space.index(ans)] = 1.0
+            source_labels.append(labels)
+        base_labels = torch.tensor(base_labels, dtype=torch.float)
+        source_labels = torch.tensor(source_labels, dtype=torch.float)
+        outputs = {"base_labels": base_labels, 
+                   "source_labels": source_labels}
     return outputs
 
 
@@ -78,7 +91,7 @@ def get_sampler(data, batch_size, seed):
             return all_batches
         
         def __len__(self):
-            return len(self.batches)
+            return len(self.data_source)
         
         def __iter__(self):
             g = torch.Generator()
@@ -110,11 +123,23 @@ def collate_fn(batch):
     return batch_out
 
 
-def get_dataloader(data, batch_size, seed, tokenizer, max_length, **kwargs):
+def get_dataloader(data, batch_size, seed, tokenizer, max_length, output_space, **kwargs):
+
+    class InterventionDataset(Dataset):
+        def __init__(self, data):
+            self.data = data
+        
+        def __len__(self):
+            return len(self.data)
+        
+        def __getitem__(self, idx):
+            return self.data[idx]
+
     all_inputs = get_inputs(data, tokenizer, max_length, **kwargs)
-    all_outputs = get_outputs(data, tokenizer)
+    all_outputs = get_outputs(data, tokenizer, output_space)
     all_data = {**all_inputs, **all_outputs}
     # to list of dicts
     data = [dict(zip(all_data, t)) for t in zip(*all_data.values())]
     sampler = get_sampler(data, batch_size, seed)
-    return DataLoader(data, batch_size=batch_size, sampler=sampler, collate_fn=collate_fn)
+    dataset = InterventionDataset(data)
+    return DataLoader(dataset, batch_size=batch_size, sampler=sampler, collate_fn=collate_fn)

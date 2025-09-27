@@ -11,7 +11,6 @@ class RotatedSpaceIntervention(nn.Module):
         
         rotation_matrix = torch.empty(hidden_size, hidden_size)
         nn.init.orthogonal_(rotation_matrix)
-        # nn.utils.parametrizations.orthogonal(rotation_matrix)
         self.rotation_matrix = nn.Parameter(rotation_matrix, requires_grad=True)
         
         var_proj = torch.empty(proj_num, hidden_size)
@@ -23,7 +22,7 @@ class RotatedSpaceIntervention(nn.Module):
         _, top_indices = torch.topk(self.var_proj[var_idx], top_k)
         return top_indices
     
-    def forward(self, base, source, intervention_variables, top_k):
+    def forward(self, base, source, intervention_variables, top_k=None):
         """
         Samples in a batch should have the same intervention positions
         
@@ -33,7 +32,12 @@ class RotatedSpaceIntervention(nn.Module):
             intervention_variables: list of variable indices to intervene on
             top_k: number of top dimensions to select for intervention
         """
+        if top_k is None:
+            top_k = self.hidden_size # TODO: just for debugging
+
         # Rotate to learned basis
+        base = base.to(self.rotation_matrix.device).to(torch.float32)
+        source = source.to(self.rotation_matrix.device).to(torch.float32)
         rotated_base = torch.matmul(base, self.rotation_matrix)
         rotated_source = torch.matmul(source, self.rotation_matrix)
         
