@@ -22,7 +22,7 @@ class RotatedSpaceIntervention(nn.Module):
         _, top_indices = torch.topk(self.var_proj[var_idx], top_k)
         return top_indices
     
-    def forward(self, base, source, intervention_variables, top_k=None):
+    def forward(self, base, source, intervention_variables, top_k=None, rotated_back=True):
         """
         Samples in a batch should have the same intervention positions
         
@@ -60,5 +60,7 @@ class RotatedSpaceIntervention(nn.Module):
                 rotated_source * intervention_mask  # Replace selected dims with source
             )
         
-        # Rotate back to original basis
+        if not rotated_back:
+            return rotated_base_intervened
+        
         return torch.matmul(rotated_base_intervened, self.rotation_matrix.T)

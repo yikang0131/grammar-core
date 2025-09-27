@@ -60,8 +60,8 @@ class Trainer:
         torch.save(self.intervention_module, f"{save_path}/intervention_module.pt")
         intervention_config = {
             "model_name_or_path": self.model_name_or_path,
-            "intervenable_name": self.model.__class__.__name__,
-            "intervention_name": self.intervention_module.__class__.__name__,
+            "intervenable_class": self.model.__class__.__name__,
+            "intervention_class": self.intervention_module.__class__.__name__,
         }
         with open(f"{save_path}/intervention_config.json", "w") as f:
             json.dump(intervention_config, f, indent=4)

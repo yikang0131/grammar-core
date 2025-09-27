@@ -65,10 +65,30 @@ TASK_KWARGS = {
 
 class Coreference(Task):
 
-    def __init__(self):
-        super().__init__(**TASK_KWARGS)
+    def __init__(self, **kwargs):
+        if not kwargs:
+            kwargs = TASK_KWARGS
+        super().__init__(**kwargs)
 
-    def generate_data(self, data_path, ambiguous=False, train_test_split=True):
+    def format_example(self, example):
+        example["person1"] = example["person1"].replace("The ", "the ")
+        example["person2"] = example["person2"].replace("The ", "the ")
+        question = f"Sentence: {example['sentence']}\nQuestion: Who does \"{example['pronoun']}\" refer to?\nA. {example['person1']}\nB. {example['person2']}\nRespond with \"A\" or \"B\"."
+        answers = []
+        for cue in ["binding", "gender", "context"]:
+            if example[f"{cue}_direction"] == "neutral":
+                continue
+            answers.append(example[f"{cue}_direction"])
+        # check there is no conflict in answers
+        if len(set(answers)) > 1:
+            raise ValueError(f"Conflicting answers: {answers}")
+        else:
+            answer = answers[0]
+        example["question"] = question
+        example["answer"] = answer
+        return example
+
+    def generate_data(self, data_path, sample=True, train_test_split=True):
         import pandas as pd
 
         df = pd.read_json(data_path, lines=True)
@@ -119,8 +139,10 @@ class Coreference(Task):
                 intervention_data["intervention_variables"].append(
                     [self.var2id("binding_direction")]
                 )
-
-        binding_based_data = pd.DataFrame(intervention_data).sample(n=600, random_state=42)
+        if sample:
+            binding_based_data = pd.DataFrame(intervention_data).sample(n=600, random_state=42)
+        else:
+            binding_based_data = pd.DataFrame(intervention_data)
         # Save to tmp file for checking
         # binding_based_data.to_json("coreference_intervention_binding.jsonl", lines=True, orient="records")
 
@@ -145,7 +167,10 @@ class Coreference(Task):
                 intervention_data["intervention_variables"].append(
                     [self.var2id("context_direction")]
                 )
-        context_based_data = pd.DataFrame(intervention_data).sample(n=600, random_state=42)
+        if sample:
+            context_based_data = pd.DataFrame(intervention_data).sample(n=600, random_state=42)
+        else:
+            context_based_data = pd.DataFrame(intervention_data)
         # context_based_data.to_json("coreference_intervention_context.jsonl", lines=True, orient="records")
 
         # Make intervention: gender-based
@@ -169,7 +194,11 @@ class Coreference(Task):
                 intervention_data["intervention_variables"].append(
                     [self.var2id("gender_direction")]
                 )
-        gender_based_data = pd.DataFrame(intervention_data).sample(n=600, random_state=42)
+
+        if sample:
+            gender_based_data = pd.DataFrame(intervention_data).sample(n=600, random_state=42)
+        else:
+            gender_based_data = pd.DataFrame(intervention_data)
         # gender_based_data.to_json("coreference_intervention_gender.jsonl", lines=True, orient="records")
 
         if train_test_split:
@@ -188,3 +217,9 @@ class Coreference(Task):
             test_data.source_answer = test_data.source_answer.apply(lambda x: "A" if x == "person1" else "B")
 
             return {"train": train_data, "validation": test_data}
+        
+        else:
+            all_data = pd.concat([binding_based_data, context_based_data, gender_based_data]).sample(frac=1, random_state=42).reset_index(drop=True)
+            all_data.base_answer = all_data.base_answer.apply(lambda x: "A" if x == "person1" else "B")
+            all_data.source_answer = all_data.source_answer.apply(lambda x: "A" if x == "person1" else "B")
+            return all_data

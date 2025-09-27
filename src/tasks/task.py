@@ -12,6 +12,11 @@ class Task:
             raise NotImplementedError("Multi-token tasks are not implemented yet.")
         self.num_variables = len(interv_configs)
 
+    def id2var(self, var_id):
+        if var_id < 0 or var_id >= self.num_variables:
+            raise ValueError(f"Variable ID {var_id} is out of range.")
+        return self.interv_configs[var_id]["name"]
+
     def var2id(self, var_name):
         for i, config in enumerate(self.interv_configs):
             if config["name"] == var_name:
@@ -35,17 +40,6 @@ class Task:
         }
         with open(save_path, "w") as f:
             json.dump(config, f, indent=4)
-
-    @classmethod
-    def load_task_config(cls, load_path):
-        with open(load_path, "r") as f:
-            config = json.load(f)
-        return cls(
-            interv_configs=config["interv_configs"],
-            output_space=config["output_space"],
-            chat=config["chat"],
-            multi_token=config.get("multi_token")
-        )
     
     def generate_data(self, **kwargs):
         raise NotImplementedError("This method should be implemented in subclasses.")
