@@ -44,9 +44,9 @@ I want you to generate more such stimuli, ensuring the coreference is clear and 
 """
 
 interv_configs = [
-    {"name": "gender_direction"},
-    {"name": "binding_direction"},
-    {"name": "context_direction"},
+    {"id": 0, "name": "gender_direction"},
+    {"id": 1, "name": "binding_direction"},
+    {"id": 2, "name": "context_direction"},
 ]
 
 
@@ -88,7 +88,11 @@ class Coreference(Task):
         example["answer"] = answer
         return example
 
+    def causal_model(self, gender_direction, binding_direction, context_direction, decision):
+        ...
+
     def generate_data(self, data_path, sample=True, train_test_split=True):
+        import random
         import pandas as pd
 
         df = pd.read_json(data_path, lines=True)
@@ -132,15 +136,17 @@ class Coreference(Task):
         # Make m x n pairs
         for i, (_, row1) in enumerate(person1_data.iterrows()):
             for j, (_, row2) in enumerate(person2_data.iterrows()):
-                intervention_data["base_question"].append(row1.question)
-                intervention_data["source_question"].append(row2.question)
-                intervention_data["base_answer"].append(row1.answer)
-                intervention_data["source_answer"].append(row2.answer)
+                base_row = random.choice([row1, row2])
+                source_row = row2 if base_row.equals(row1) else row1
+                intervention_data["base_question"].append(base_row.question)
+                intervention_data["source_question"].append(source_row.question)
+                intervention_data["base_answer"].append(base_row.answer)
+                intervention_data["source_answer"].append(source_row.answer)
                 intervention_data["intervention_variables"].append(
                     [self.var2id("binding_direction")]
                 )
         if sample:
-            binding_based_data = pd.DataFrame(intervention_data).sample(n=600, random_state=42)
+            binding_based_data = pd.DataFrame(intervention_data).sample(n=1000, random_state=42)
         else:
             binding_based_data = pd.DataFrame(intervention_data)
         # Save to tmp file for checking
@@ -160,15 +166,17 @@ class Coreference(Task):
         # Make m x n pairs
         for i, (_, row1) in enumerate(person1_data.iterrows()):
             for j, (_, row2) in enumerate(person2_data.iterrows()):
-                intervention_data["base_question"].append(row1.question)
-                intervention_data["source_question"].append(row2.question)
-                intervention_data["base_answer"].append(row1.answer)
-                intervention_data["source_answer"].append(row2.answer)
+                base_row = random.choice([row1, row2])
+                source_row = row2 if base_row.equals(row1) else row1
+                intervention_data["base_question"].append(base_row.question)
+                intervention_data["source_question"].append(source_row.question)
+                intervention_data["base_answer"].append(base_row.answer)
+                intervention_data["source_answer"].append(source_row.answer)
                 intervention_data["intervention_variables"].append(
                     [self.var2id("context_direction")]
                 )
         if sample:
-            context_based_data = pd.DataFrame(intervention_data).sample(n=600, random_state=42)
+            context_based_data = pd.DataFrame(intervention_data).sample(n=1000, random_state=42)
         else:
             context_based_data = pd.DataFrame(intervention_data)
         # context_based_data.to_json("coreference_intervention_context.jsonl", lines=True, orient="records")
@@ -187,16 +195,18 @@ class Coreference(Task):
         # Make m x n pairs
         for i, (_, row1) in enumerate(person1_data.iterrows()):
             for j, (_, row2) in enumerate(person2_data.iterrows()):
-                intervention_data["base_question"].append(row1.question)
-                intervention_data["source_question"].append(row2.question)
-                intervention_data["base_answer"].append(row1.answer)
-                intervention_data["source_answer"].append(row2.answer)
+                base_row = random.choice([row1, row2])
+                source_row = row2 if base_row.equals(row1) else row1
+                intervention_data["base_question"].append(base_row.question)
+                intervention_data["source_question"].append(source_row.question)
+                intervention_data["base_answer"].append(base_row.answer)
+                intervention_data["source_answer"].append(source_row.answer)
                 intervention_data["intervention_variables"].append(
                     [self.var2id("gender_direction")]
                 )
 
         if sample:
-            gender_based_data = pd.DataFrame(intervention_data).sample(n=600, random_state=42)
+            gender_based_data = pd.DataFrame(intervention_data).sample(n=1000, random_state=42)
         else:
             gender_based_data = pd.DataFrame(intervention_data)
         # gender_based_data.to_json("coreference_intervention_gender.jsonl", lines=True, orient="records")

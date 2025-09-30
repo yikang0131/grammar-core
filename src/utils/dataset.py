@@ -5,15 +5,19 @@ from collections import defaultdict
 
 
 def tokenize_function(texts, tokenizer, max_length, **kwargs):
+    if not isinstance(texts, list):
+        texts = texts.tolist()
     chat = kwargs.pop("chat", False)
+    # TODO:
+    kwargs.update({"enable_thinking": False})
     if chat:
         texts = [
             tokenizer.apply_chat_template(
-                t,
+                [{"role": "user", "content": text}],
                 add_generation_prompt=True,
                 tokenize=False,
                 **kwargs
-            ) for t in texts
+            ) for text in texts
         ]
     inputs = tokenizer(texts, max_length=max_length, truncation=True, padding="max_length", return_tensors="pt")
     return inputs
@@ -79,6 +83,13 @@ def get_sampler(data, batch_size, seed):
             for idx, item in enumerate(self.data_source):
                 key = tuple(item["intervention_variables"])  # Convert list to tuple for hashing
                 grouped[key].append(idx)
+            # Shuffle indices within each group
+            g = torch.Generator()
+            g.manual_seed(self.seed)
+            for key in grouped:
+                indices = grouped[key]
+                shuffled_indices = torch.randperm(len(indices), generator=g).tolist()
+                grouped[key] = [indices[i] for i in shuffled_indices]
             return grouped
         
         def _create_batches(self):

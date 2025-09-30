@@ -40,8 +40,9 @@ class IntervenableBase:
         }
 
         interv_map = {}
-        for interv_id, interv_config in enumerate(intervention_variables):
-            interv_at = interv_config["interv_at"]
+        for interv_var in intervention_variables:
+            interv_id = interv_var["id"]
+            interv_at = interv_var["interv_at"]
             if interv_at not in interv_map:
                 interv_map[interv_at] = []
             interv_map[interv_at].append(interv_id)

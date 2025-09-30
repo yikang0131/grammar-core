@@ -8,6 +8,7 @@ import argparse
 import os
 import json
 from collections import defaultdict
+from dataclasses import asdict
 
 # Add project root to sys.path
 import sys
@@ -17,7 +18,7 @@ from src.models import load_intervenable_model
 from src.tasks import init_task
 from src.utils.dataset import get_dataloader
 from src.utils.topk_scheduler import TopKScheduler
-from src.interventions import INTERVENTIONS
+from src.interventions import INTERVENTIONS, RotatedSpaceConfig
 
 
 class Trainer:
@@ -50,19 +51,22 @@ class Trainer:
         if intervention_class is None:
             raise ValueError(f"Intervention {intervention_name} not found in available interventions: {list(INTERVENTIONS.keys())}")    
 
-        self.intervention_module = intervention_class(hidden_size, num_variables)
+        intervention_config = RotatedSpaceConfig(hidden_size=hidden_size, proj_num=num_variables)
+        self.intervention_module = intervention_class(intervention_config)
         self.intervention_module.to(self.model.device)
 
     def save(self, save_path):
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         self.task.save_task_config(f"{save_path}/task_config.json")
-        torch.save(self.intervention_module, f"{save_path}/intervention_module.pt")
+        # torch.save(self.intervention_module, f"{save_path}/intervention_module.pt")
+        torch.save(self.intervention_module.state_dict(), f"{save_path}/intervention_module_state_dict.pt")
         intervention_config = {
             "model_name_or_path": self.model_name_or_path,
             "intervenable_class": self.model.__class__.__name__,
             "intervention_class": self.intervention_module.__class__.__name__,
         }
+        intervention_config.update(asdict(self.intervention_module.config))
         with open(f"{save_path}/intervention_config.json", "w") as f:
             json.dump(intervention_config, f, indent=4)
 
@@ -100,8 +104,8 @@ class Trainer:
         # Add TopK scheduler if needed
         if self.intervention_module.__class__.__name__ == "RotatedSpaceIntervention":
             topk_scheduler = TopKScheduler(
-                initial_top_k=self.intervention_module.hidden_size,
-                final_top_k=max(1, self.intervention_module.hidden_size // 10),
+                initial_top_k=self.intervention_module.config.hidden_size,
+                final_top_k=max(1, self.intervention_module.config.hidden_size // 10),
                 total_steps=max_steps,
                 warmup_steps=warmup_steps,
                 schedule_type="linear"

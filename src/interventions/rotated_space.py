@@ -1,13 +1,21 @@
 import torch
 import torch.nn as nn
+from dataclasses import dataclass
+
+
+@dataclass
+class RotatedSpaceConfig:
+    hidden_size: int
+    proj_num: int
 
 
 class RotatedSpaceIntervention(nn.Module):
     
-    def __init__(self, hidden_size, proj_num):
+    def __init__(self, config: RotatedSpaceConfig):
         super().__init__()
-        self.hidden_size = hidden_size
-        self.proj_num = proj_num
+        self.config = config
+        hidden_size = config.hidden_size
+        proj_num = config.proj_num
         
         rotation_matrix = torch.empty(hidden_size, hidden_size)
         nn.init.orthogonal_(rotation_matrix)
@@ -33,7 +41,7 @@ class RotatedSpaceIntervention(nn.Module):
             top_k: number of top dimensions to select for intervention
         """
         if top_k is None:
-            top_k = self.hidden_size # TODO: just for debugging
+            top_k = self.config.hidden_size # TODO: just for debugging
 
         # Rotate to learned basis
         base = base.to(self.rotation_matrix.device).to(torch.float32)
@@ -45,20 +53,21 @@ class RotatedSpaceIntervention(nn.Module):
         # rotated_base_intervened = rotated_base.clone()
         rotated_base_intervened = torch.zeros_like(rotated_base)
         
-        # Apply interventions only on selected top_k dimensions for each variable
+        indices = []
         for var_idx in intervention_variables:
             # Select top_k dimensions for this variable
-            top_indices = self.select_subspace(top_k, var_idx)
+            indices.extend(self.select_subspace(top_k, var_idx).tolist())
+        indices = list(set(indices))  # Unique indices
             
-            # Create intervention mask - only intervene on top_k dimensions
-            intervention_mask = torch.zeros(self.hidden_size, device=base.device)
-            intervention_mask[top_indices] = 1.0
-            
-            # Apply intervention: replace base with source only for selected dimensions
-            rotated_base_intervened = (
-                rotated_base_intervened * (1 - intervention_mask) +  # Keep non-selected dims from base
-                rotated_source * intervention_mask  # Replace selected dims with source
-            )
+        # Create intervention mask - only intervene on top_k dimensions
+        intervention_mask = torch.zeros(self.config.hidden_size, device=base.device)
+        intervention_mask[indices] = 1.0
+        
+        # Apply intervention: replace base with source only for selected dimensions
+        rotated_base_intervened = (
+            rotated_base * (1 - intervention_mask) +  # Keep non-selected dims from base
+            rotated_source * intervention_mask  # Replace selected dims with source
+        )
         
         if not rotated_back:
             return rotated_base_intervened
